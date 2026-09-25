@@ -1,0 +1,64 @@
+name: Deploy catalog to Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Validate JavaScript
+        run: node --check app.js
+      - name: Validate key content
+        run: |
+          set -euo pipefail
+          grep -q '足型から、選び直す' index.html
+          grep -q "id:'margot3'" app.js
+          grep -q "id:'a0646'" app.js
+          grep -q "id:'tree'" app.js
+          ! grep -q '20260923175646.pdf' index.html
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify published site
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          PAGE_URL="${PAGE_URL%/}/"
+          for attempt in {1..12}; do
+            if curl -fsSL --retry 3 --retry-delay 2 "${PAGE_URL}" -o /tmp/page.html \
+              && curl -fsSL --retry 3 --retry-delay 2 "${PAGE_URL}app.js" -o /tmp/app.js \
+              && grep -q '足型から、選び直す' /tmp/page.html \
+              && grep -q "id:'margot3'" /tmp/app.js; then
+              echo "Published site verification succeeded: ${PAGE_URL}"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Published site verification failed" >&2
+          exit 1
